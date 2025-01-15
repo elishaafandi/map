@@ -3,6 +3,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:movease/booking_request.dart';
 import 'package:movease/chats_renter.dart';
 import 'package:movease/profile_page.dart';
+import 'package:movease/renter_feedback_page.dart';
 import 'package:movease/renter_status_tracker.dart';
 
 import 'login_screen.dart';
@@ -101,7 +102,7 @@ class _RenterPageState extends State<RenterPage> {
             color: Colors.black, // Match your background color
             child: BookingRequest()),
         BookingStatusRenter(),
-        Center(child: Text('Feedback', style: TextStyle(fontSize: 20))),
+        RenterFeedbackPage(currentUserId: 'current-user-id'),
         RenterNotificationsPage(),
         ProfilePage()
       ];

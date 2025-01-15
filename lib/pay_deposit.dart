@@ -1,5 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:movease/credit_debit_card.dart';
+import 'package:movease/online_banking.dart';
+
 
 class PayDepositPage extends StatefulWidget {
   final Map<String, dynamic> bookingDetails;
@@ -16,50 +19,121 @@ class PayDepositPage extends StatefulWidget {
 class _PayDepositPageState extends State<PayDepositPage> {
   String selectedPaymentMethod = "Online Banking";
 
-  Future<void> proceedPayment() async {
-    try {
-      // Create deposit document data
-      final depositData = {
-        'bookingId': widget.bookingDetails['bookingId'],
-        'paymentMethod': selectedPaymentMethod,
-        'paymentStatus': 'Completed',
-        'pickupDate': widget.bookingDetails['pickupDate'],
-        'pickupTime': widget.bookingDetails['pickupTime'],
-        'returnDate': widget.bookingDetails['returnDate'],
-        'returnTime': widget.bookingDetails['returnTime'],
-        'timestamp': FieldValue.serverTimestamp(),
-        'totalDeposit': calculateDeposit(),
-        'vehicleId': widget.bookingDetails['vehicleId'],
-        'vehicleName': widget.bookingDetails['vehicleName'],
-      };
-
-      // Save to Firestore
-      await FirebaseFirestore.instance
-          .collection('deposits')
-          .doc(widget
-              .bookingDetails['bookingId']) // Use bookingId as document ID
-          .set(depositData);
-
-      // Show success message
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Deposit payment processed successfully!'),
-          backgroundColor: Colors.green,
+Future<void> proceedPayment() async {
+  if (selectedPaymentMethod == "Online Banking") {
+    // Existing online banking flow
+    final paymentSuccess = await Navigator.push<bool>(
+      context,
+      MaterialPageRoute(
+        builder: (context) => OnlineBanking(
+          amount: calculateDeposit(),
+          bookingReference: widget.bookingDetails['bookingId'],
         ),
-      );
+      ),
+    );
 
-      // Return true to indicate successful payment
-      Navigator.pop(context, true);
-    } catch (e) {
-      // Show error message if saving fails
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Payment failed: ${e.toString()}'),
-          backgroundColor: Colors.red,
+    // Only proceed with Firestore update if payment was successful
+    if (paymentSuccess == true) {
+      try {
+        // Create deposit document data
+        final depositData = {
+          'bookingId': widget.bookingDetails['bookingId'],
+          'paymentMethod': selectedPaymentMethod,
+          'paymentStatus': 'Completed',
+          'pickupDate': widget.bookingDetails['pickupDate'],
+          'pickupTime': widget.bookingDetails['pickupTime'],
+          'returnDate': widget.bookingDetails['returnDate'],
+          'returnTime': widget.bookingDetails['returnTime'],
+          'timestamp': FieldValue.serverTimestamp(),
+          'totalDeposit': calculateDeposit(),
+          'vehicleId': widget.bookingDetails['vehicleId'],
+          'vehicleName': widget.bookingDetails['vehicleName'],
+        };
+
+        // Save to Firestore
+        await FirebaseFirestore.instance
+            .collection('deposits')
+            .doc(widget.bookingDetails['bookingId'])
+            .set(depositData);
+
+        // Show success message
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Deposit payment processed successfully!'),
+            backgroundColor: Colors.green,
+          ),
+        );
+
+        // Return true to indicate successful payment
+        Navigator.pop(context, true);
+      } catch (e) {
+        // Show error message if saving fails
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Payment failed: ${e.toString()}'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
+  } else if (selectedPaymentMethod == "Credit/Debit Card") {
+    // Navigate to Credit/Debit Card payment flow
+    final paymentSuccess = await Navigator.push<bool>(
+      context,
+      MaterialPageRoute(
+        builder: (context) => CreditDebitPayment(
+          amount: calculateDeposit(),
+          bookingReference: widget.bookingDetails['bookingId'],
         ),
-      );
+      ),
+    );
+
+    // Only proceed with Firestore update if payment was successful
+    if (paymentSuccess == true) {
+      try {
+        // Create deposit document data
+        final depositData = {
+          'bookingId': widget.bookingDetails['bookingId'],
+          'paymentMethod': selectedPaymentMethod,
+          'paymentStatus': 'Completed',
+          'pickupDate': widget.bookingDetails['pickupDate'],
+          'pickupTime': widget.bookingDetails['pickupTime'],
+          'returnDate': widget.bookingDetails['returnDate'],
+          'returnTime': widget.bookingDetails['returnTime'],
+          'timestamp': FieldValue.serverTimestamp(),
+          'totalDeposit': calculateDeposit(),
+          'vehicleId': widget.bookingDetails['vehicleId'],
+          'vehicleName': widget.bookingDetails['vehicleName'],
+        };
+
+        // Save to Firestore
+        await FirebaseFirestore.instance
+            .collection('deposits')
+            .doc(widget.bookingDetails['bookingId'])
+            .set(depositData);
+
+        // Show success message
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Deposit payment processed successfully!'),
+            backgroundColor: Colors.green,
+          ),
+        );
+
+        // Return true to indicate successful payment
+        Navigator.pop(context, true);
+      } catch (e) {
+        // Show error message if saving fails
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Payment failed: ${e.toString()}'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
     }
   }
+}
 
   void cancelPayment() {
     ScaffoldMessenger.of(context).showSnackBar(
@@ -193,8 +267,8 @@ class _PayDepositPageState extends State<PayDepositPage> {
                     child: Text("Online Banking"),
                   ),
                   DropdownMenuItem<String>(
-                    value: "QR Code",
-                    child: Text("QR Code"),
+                    value: "Credit/Debit Card",
+                    child: Text("Credit/Debit Card"),
                   ),
                 ],
                 onChanged: (value) {
@@ -249,7 +323,7 @@ class _PayDepositPageState extends State<PayDepositPage> {
           style: TextStyle(color: Colors.black),
         ),
         backgroundColor: Colors.yellow.shade700,
-        iconTheme: IconThemeData(color: Colors.black),
+        iconTheme: const IconThemeData(color: Colors.black),
       ),
       body: SingleChildScrollView(
         child: Padding(

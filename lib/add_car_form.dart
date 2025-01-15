@@ -97,7 +97,7 @@ class _AddCarFormState extends State<AddCarForm> {
               width: double.infinity,
               decoration: BoxDecoration(
                 image: DecorationImage(
-                  image: AssetImage('assets/images/city.jpg'),
+                  image: AssetImage('assets/images/honda city.png'),
                   fit: BoxFit.cover,
                 ),
               ),

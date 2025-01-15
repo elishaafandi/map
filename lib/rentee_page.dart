@@ -4,6 +4,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:movease/booking_LIst.dart';
 import 'package:movease/chats_rentee.dart';
 import 'package:movease/profile_page.dart';
+import 'package:movease/rentee_feedback_page.dart';
 import 'login_screen.dart';
 import 'rentee_booking.dart';
 import 'renter_page.dart';
@@ -250,7 +251,7 @@ class _RenteePageState extends State<RenteePage> {
         ),
         BookingList(),
         BookingStatus(),
-        Center(child: Text('Feedback', style: TextStyle(fontSize: 20))),
+        RenteeFeedbackPage(currentUserId: 'current-user-id'),
         NotificationsPage(),
         ProfilePage()
       ];

@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:movease/credit_debit_card.dart';
+import 'package:movease/online_banking.dart';
 
 class FinalPaymentPage extends StatefulWidget {
   final Map<String, dynamic> bookingDetails;
@@ -18,6 +20,8 @@ class _FinalPaymentPageState extends State<FinalPaymentPage> {
   String selectedPaymentMethod = "Credit/Debit";
   Map<String, dynamic>? inspectionFormDetails;
   bool isLoading = true;
+  bool hasError = false;
+  String errorMessage = '';
 
   @override
   void initState() {
@@ -27,47 +31,98 @@ class _FinalPaymentPageState extends State<FinalPaymentPage> {
 
   Future<void> fetchInspectionDetails() async {
     try {
-      final doc = await FirebaseFirestore.instance
+      final QuerySnapshot querySnapshot = await FirebaseFirestore.instance
           .collection('post_inspection_forms')
-          .doc(widget.bookingDetails['bookingId'])
+          .where('bookingId', isEqualTo: widget.bookingDetails['bookingId'])
+          .limit(1)
           .get();
 
-      if (doc.exists) {
+      if (querySnapshot.docs.isNotEmpty) {
         setState(() {
-          inspectionFormDetails = doc.data();
+          inspectionFormDetails = querySnapshot.docs.first.data() as Map<String, dynamic>;
           isLoading = false;
+          hasError = false;
         });
       } else {
-        throw Exception('Inspection form not found');
+        setState(() {
+          isLoading = false;
+          hasError = true;
+          errorMessage = 'Inspection form not found. Please complete the inspection first.';
+        });
       }
     } catch (e) {
+      setState(() {
+        isLoading = false;
+        hasError = true;
+        errorMessage = 'Error loading inspection details: ${e.toString()}';
+      });
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('Error loading inspection details: ${e.toString()}'),
+          content: Text(errorMessage),
           backgroundColor: Colors.red,
         ),
       );
-      setState(() {
-        isLoading = false;
-      });
     }
   }
 
-  Widget buildInspectionSummary() {
+  Widget buildFineBreakdown() {
     if (isLoading) {
       return const Center(child: CircularProgressIndicator());
     }
 
-    if (inspectionFormDetails == null) {
-      return const Card(
+    if (hasError) {
+      return Center(
         child: Padding(
-          padding: EdgeInsets.all(16.0),
+          padding: const EdgeInsets.all(16.0),
           child: Text(
-            'Inspection details not available',
-            style: TextStyle(color: Colors.white),
+            errorMessage,
+            style: const TextStyle(color: Colors.red),
+            textAlign: TextAlign.center,
           ),
         ),
       );
+    }
+
+    List<Widget> fineDetails = [];
+    double totalFines = 0.0;
+
+    void addFineDetail(String component, String? condition, double fairAmount) {
+      if (condition == null) return;
+      condition = condition.toLowerCase();
+      if (condition == 'not good') {
+        double fineAmount = fairAmount;
+        totalFines += fineAmount;
+        fineDetails.add(
+          Padding(
+            padding: const EdgeInsets.symmetric(vertical: 4.0),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Text(
+                  '$component (Not Good)',
+                  style: const TextStyle(color: Colors.white),
+                ),
+                Text(
+                  'RM${fineAmount.toStringAsFixed(2)}',
+                  style: const TextStyle(color: Colors.red),
+                ),
+              ],
+            ),
+          ),
+        );
+      }
+    }
+
+    if (inspectionFormDetails != null) {
+      addFineDetail('Exterior Condition',
+          inspectionFormDetails!["Exterior Condition"], 20.0);
+      addFineDetail('Interior Condition',
+          inspectionFormDetails!["Interior Condition"], 20.0);
+      addFineDetail('Engine Sound', inspectionFormDetails!["Engine Sound"], 30.0);
+      addFineDetail('Brakes', inspectionFormDetails!["Brakes"], 30.0);
+      addFineDetail('Tires', inspectionFormDetails!["Tires"], 25.0);
+      addFineDetail('Lights and Signals',
+          inspectionFormDetails!["Lights and Signals"], 20.0);
     }
 
     return Card(
@@ -78,7 +133,7 @@ class _FinalPaymentPageState extends State<FinalPaymentPage> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
-              'Inspection Summary',
+              'Fine Breakdown',
               style: TextStyle(
                 color: Colors.yellow.shade700,
                 fontSize: 20,
@@ -86,139 +141,92 @@ class _FinalPaymentPageState extends State<FinalPaymentPage> {
               ),
             ),
             const SizedBox(height: 16),
-            buildDetailRow(
-              'Overall Condition',
-              inspectionFormDetails!["carCondition"] ?? "N/A",
-            ),
-            buildDetailRow(
-              'Exterior Condition',
-              inspectionFormDetails!["Exterior Condition"] ?? "N/A",
-            ),
-            buildDetailRow(
-              'Interior Condition',
-              inspectionFormDetails!["Interior Condition"] ?? "N/A",
-            ),
-            buildDetailRow(
-              'Fuel Level',
-              inspectionFormDetails!["Fuel Level"] ?? "N/A",
-            ),
-            buildTechnicalChecks(),
-            if (inspectionFormDetails!["inspectionComments"]?.isNotEmpty ??
-                false)
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
+            ...fineDetails,
+            if (fineDetails.isEmpty)
+              const Text(
+                'No fines applicable',
+                style: TextStyle(color: Colors.green),
+              ),
+            if (fineDetails.isNotEmpty) ...[
+              const Divider(color: Colors.grey),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  const SizedBox(height: 16),
                   const Text(
-                    'Additional Comments',
+                    'Total Fines',
                     style: TextStyle(
                       color: Colors.white,
                       fontWeight: FontWeight.bold,
                     ),
                   ),
-                  const SizedBox(height: 8),
                   Text(
-                    inspectionFormDetails!["inspectionComments"] ?? "None",
-                    style: const TextStyle(color: Colors.white),
+                    'RM${totalFines.toStringAsFixed(2)}',
+                    style: const TextStyle(
+                      color: Colors.red,
+                      fontWeight: FontWeight.bold,
+                    ),
                   ),
                 ],
               ),
+            ],
           ],
         ),
       ),
     );
   }
 
-  Widget buildTechnicalChecks() {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        const Divider(color: Colors.grey),
-        const SizedBox(height: 8),
-        const Text(
-          'Technical Checks',
-          style: TextStyle(
-            color: Colors.white,
-            fontWeight: FontWeight.bold,
-          ),
+  void navigateToPaymentMethod() async {
+    if (hasError) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(errorMessage),
+          backgroundColor: Colors.red,
         ),
-        const SizedBox(height: 8),
-        _buildCheckItem('Brakes', inspectionFormDetails!["Brakes"] ?? "N/A"),
-        _buildCheckItem(
-            'Engine Sound', inspectionFormDetails!["Engine Sound"] ?? "N/A"),
-        _buildCheckItem('Lights and Signals',
-            inspectionFormDetails!["Lights and Signals"] ?? "N/A"),
-        _buildCheckItem('Tires', inspectionFormDetails!["Tires"] ?? "N/A"),
-      ],
-    );
-  }
-
-  Widget _buildCheckItem(String label, String condition) {
-    IconData icon;
-    Color color;
-
-    switch (condition.toLowerCase()) {
-      case 'good':
-        icon = Icons.check_circle;
-        color = Colors.green;
-        break;
-      case 'fair':
-        icon = Icons.info;
-        color = Colors.yellow;
-        break;
-      case 'poor':
-        icon = Icons.cancel;
-        color = Colors.red;
-        break;
-      default:
-        icon = Icons.help_outline;
-        color = Colors.grey;
+      );
+      return;
     }
 
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 4.0),
-      child: Row(
-        children: [
-          Icon(
-            icon,
-            color: color,
-            size: 16,
-          ),
-          const SizedBox(width: 8),
-          Text(
-            '$label: ',
-            style: const TextStyle(
-              color: Colors.white,
-              fontWeight: FontWeight.w500,
-            ),
-          ),
-          Text(
-            condition,
-            style: TextStyle(
-              color: color,
-            ),
-          ),
-        ],
-      ),
+    final amount = calculateRemainingBalance();
+    final bookingReference = widget.bookingDetails['bookingId'] ?? '';
+    
+    Widget paymentPage = selectedPaymentMethod == "Credit/Debit"
+        ? CreditDebitPayment(
+            amount: amount,
+            bookingReference: bookingReference,
+          )
+        : OnlineBanking(
+            amount: amount,
+            bookingReference: bookingReference,
+          );
+
+    final result = await Navigator.push(
+      context,
+      MaterialPageRoute(builder: (context) => paymentPage),
     );
+
+    if (result == true) {
+      Navigator.of(context).pop(true);
+    }
+  }
+
+  double calculateRemainingBalance() {
+    double totalPrice = widget.bookingDetails["totalPrice"]?.toDouble() ?? 0.0;
+    double deposit = (totalPrice * 0.35);
+    double fineCharges = calculateFineCharges();
+    return (totalPrice - deposit) + fineCharges;
   }
 
   double calculateFineCharges() {
-    if (inspectionFormDetails == null) return 0.0;
+    if (inspectionFormDetails == null || hasError) return 0.0;
     double fines = 0.0;
 
-    // Function to check condition and add fines
     void checkCondition(String? condition, double amount) {
       if (condition == null) return;
-      condition = condition.toLowerCase();
-      if (condition == 'fair') {
+      if (condition.toLowerCase() == 'not good') {
         fines += amount;
-      } else if (condition == 'poor') {
-        fines += amount * 2;
       }
     }
 
-    // Check various conditions
     checkCondition(inspectionFormDetails!["Exterior Condition"], 20.0);
     checkCondition(inspectionFormDetails!["Interior Condition"], 20.0);
     checkCondition(inspectionFormDetails!["Engine Sound"], 30.0);
@@ -227,138 +235,6 @@ class _FinalPaymentPageState extends State<FinalPaymentPage> {
     checkCondition(inspectionFormDetails!["Lights and Signals"], 20.0);
 
     return fines;
-  }
-
-  String _getFineBreakdown() {
-    List<String> fineDetails = [];
-
-    void addFineDetail(String component, String? condition, double fairAmount) {
-      if (condition == null) return;
-      condition = condition.toLowerCase();
-      if (condition == 'fair') {
-        fineDetails
-            .add("$component (Fair): RM${fairAmount.toStringAsFixed(2)}");
-      } else if (condition == 'poor') {
-        fineDetails
-            .add("$component (Poor): RM${(fairAmount * 2).toStringAsFixed(2)}");
-      }
-    }
-
-    addFineDetail('Exterior Condition',
-        inspectionFormDetails!["Exterior Condition"], 20.0);
-    addFineDetail('Interior Condition',
-        inspectionFormDetails!["Interior Condition"], 20.0);
-    addFineDetail('Engine Sound', inspectionFormDetails!["Engine Sound"], 30.0);
-    addFineDetail('Brakes', inspectionFormDetails!["Brakes"], 30.0);
-    addFineDetail('Tires', inspectionFormDetails!["Tires"], 25.0);
-    addFineDetail('Lights and Signals',
-        inspectionFormDetails!["Lights and Signals"], 20.0);
-
-    return fineDetails.isEmpty ? "No fines" : fineDetails.join('\n');
-  }
-
-  double calculateRemainingBalance() {
-    double totalPrice = widget.bookingDetails["totalPrice"] ?? 0.0;
-    double deposit = (totalPrice * 0.35); // 35% deposit
-    double fineCharges = calculateFineCharges();
-    return (totalPrice - deposit) + fineCharges;
-  }
-
-  Future<void> proceedPayment() async {
-    try {
-      // Create payment document data
-      final paymentData = {
-        'bookingId': widget.bookingDetails['bookingId'],
-        'paymentMethod': selectedPaymentMethod,
-        'paymentStatus': 'Completed',
-        'timestamp': FieldValue.serverTimestamp(),
-        'totalAmount': calculateRemainingBalance(),
-        'fineCharges': calculateFineCharges(),
-        'vehicleId': widget.bookingDetails['vehicleId'],
-        'vehicleName': widget.bookingDetails['vehicleName'],
-      };
-
-      // Save to Firestore
-      await FirebaseFirestore.instance
-          .collection('payments')
-          .doc(widget.bookingDetails['bookingId'])
-          .set(paymentData);
-
-      // Update booking status
-      await FirebaseFirestore.instance
-          .collection('bookings')
-          .doc(widget.bookingDetails['bookingId'])
-          .update({'status': 'Completed'});
-
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Payment processed successfully!'),
-          backgroundColor: Colors.green,
-        ),
-      );
-      Navigator.pop(context, true);
-    } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Payment failed: ${e.toString()}'),
-          backgroundColor: Colors.red,
-        ),
-      );
-    }
-  }
-
-  Widget buildStepIndicator() {
-    return Row(
-      children: List.generate(3, (index) {
-        bool isActive = index <= currentStep;
-        return Expanded(
-          child: Container(
-            padding: const EdgeInsets.symmetric(vertical: 8.0),
-            child: Row(
-              children: [
-                Expanded(
-                  child: Container(
-                    height: 4,
-                    color: index == 0
-                        ? Colors.transparent
-                        : isActive
-                            ? Colors.yellow[600]
-                            : Colors.grey[300],
-                  ),
-                ),
-                Container(
-                  width: 30,
-                  height: 30,
-                  decoration: BoxDecoration(
-                    shape: BoxShape.circle,
-                    color: isActive ? Colors.yellow[600] : Colors.grey[300],
-                  ),
-                  child: Center(
-                    child: Text(
-                      '${index + 1}',
-                      style: TextStyle(
-                        color: isActive ? Colors.black : Colors.white,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                  ),
-                ),
-                Expanded(
-                  child: Container(
-                    height: 4,
-                    color: index == 2
-                        ? Colors.transparent
-                        : isActive
-                            ? Colors.yellow[600]
-                            : Colors.grey[300],
-                  ),
-                ),
-              ],
-            ),
-          ),
-        );
-      }),
-    );
   }
 
   Widget buildBookingDetails() {
@@ -384,19 +260,19 @@ class _FinalPaymentPageState extends State<FinalPaymentPage> {
                 'Plate Number', widget.bookingDetails["plateNumber"] ?? "N/A"),
             buildDetailRow(
               'Booking Period',
-              "${widget.bookingDetails['pickupDate']} ${widget.bookingDetails['pickupTime']} - "
-                  "${widget.bookingDetails['returnDate']} ${widget.bookingDetails['returnTime']}",
+              "${widget.bookingDetails['pickupDate'] ?? 'N/A'} ${widget.bookingDetails['pickupTime'] ?? ''} - "
+                  "${widget.bookingDetails['returnDate'] ?? 'N/A'} ${widget.bookingDetails['returnTime'] ?? ''}",
             ),
             Divider(color: Colors.yellow.shade700),
             buildDetailRow(
               'Total Price',
-              'RM ${(widget.bookingDetails["totalPrice"] ?? 0.0).toStringAsFixed(2)}',
+              'RM ${(widget.bookingDetails["totalPrice"]?.toDouble() ?? 0.0).toStringAsFixed(2)}',
             ),
             buildDetailRow(
               'Deposit Paid (35%)',
-              'RM ${((widget.bookingDetails["totalPrice"] ?? 0.0) * 0.35).toStringAsFixed(2)}',
+              'RM ${((widget.bookingDetails["totalPrice"]?.toDouble() ?? 0.0) * 0.35).toStringAsFixed(2)}',
             ),
-            if (calculateFineCharges() > 0)
+            if (!hasError && calculateFineCharges() > 0)
               buildDetailRow(
                 'Fine Charges',
                 'RM ${calculateFineCharges().toStringAsFixed(2)}',
@@ -422,44 +298,76 @@ class _FinalPaymentPageState extends State<FinalPaymentPage> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text(
-              'Payment Method',
+            Text(
+              'Select Payment Method',
               style: TextStyle(
-                color: Colors.yellow,
+                color: Colors.yellow.shade700,
                 fontSize: 20,
                 fontWeight: FontWeight.bold,
               ),
             ),
             const SizedBox(height: 16),
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 12),
-              decoration: BoxDecoration(
-                border: Border.all(color: Colors.yellow),
-                borderRadius: BorderRadius.circular(8),
-              ),
-              child: DropdownButton<String>(
-                value: selectedPaymentMethod,
-                isExpanded: true,
-                dropdownColor: Colors.grey[900],
-                style: const TextStyle(color: Colors.white),
-                underline: Container(),
-                items: const [
-                  DropdownMenuItem(
-                    value: "Credit/Debit",
-                    child: Text("Credit/Debit Card"),
-                  ),
-                  DropdownMenuItem(
-                    value: "Online Banking",
-                    child: Text("Online Banking"),
-                  ),
-                ],
-                onChanged: (value) {
-                  setState(() {
-                    selectedPaymentMethod = value!;
-                  });
-                },
+            ListView(
+              shrinkWrap: true,
+              children: [
+                _buildPaymentOption(
+                  'Credit/Debit Card',
+                  Icons.credit_card,
+                  'Credit/Debit',
+                ),
+                const SizedBox(height: 12),
+                _buildPaymentOption(
+                  'Online Banking',
+                  Icons.account_balance,
+                  'Online Banking',
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildPaymentOption(String title, IconData icon, String value) {
+    bool isSelected = selectedPaymentMethod == value;
+    return InkWell(
+      onTap: () {
+        setState(() {
+          selectedPaymentMethod = value;
+        });
+      },
+      child: Container(
+        decoration: BoxDecoration(
+          border: Border.all(
+            color: isSelected ? Colors.yellow.shade700 : Colors.grey,
+            width: 2,
+          ),
+          borderRadius: BorderRadius.circular(8),
+        ),
+        padding: const EdgeInsets.all(16),
+        child: Row(
+          children: [
+            Icon(
+              icon,
+              color: isSelected ? Colors.yellow.shade700 : Colors.grey,
+            ),
+            const SizedBox(width: 16),
+            Text(
+              title,
+              style: TextStyle(
+                color: Colors.white,
+                fontSize: 16,
+                fontWeight:
+                    isSelected ? FontWeight.bold : FontWeight.normal,
               ),
             ),
+            const Spacer(),
+            if (isSelected)
+              Icon(
+                Icons.check_circle,
+                color: Colors.yellow.shade700,
+              ),
           ],
         ),
       ),
@@ -497,7 +405,7 @@ class _FinalPaymentPageState extends State<FinalPaymentPage> {
       case 0:
         return buildBookingDetails();
       case 1:
-        return buildInspectionSummary();
+        return buildFineBreakdown();
       case 2:
         return buildPaymentMethod();
       default:
@@ -561,11 +469,11 @@ class _FinalPaymentPageState extends State<FinalPaymentPage> {
                           currentStep++;
                         });
                       } else {
-                        proceedPayment();
+                        navigateToPaymentMethod();
                       }
                     },
                     child: Text(
-                      currentStep < 2 ? 'Next' : 'Proceed Payment',
+                      currentStep < 2 ? 'Next' : 'Proceed to Payment',
                       style: const TextStyle(color: Colors.black),
                     ),
                   ),
@@ -575,6 +483,60 @@ class _FinalPaymentPageState extends State<FinalPaymentPage> {
           ),
         ),
       ),
+    );
+  }
+
+  Widget buildStepIndicator() {
+    return Row(
+      children: List.generate(3, (index) {
+        bool isActive = index <= currentStep;
+        return Expanded(
+          child: Container(
+            padding: const EdgeInsets.symmetric(vertical: 8.0),
+            child: Row(
+              children: [
+                Expanded(
+                  child: Container(
+                    height: 4,
+                    color: index == 0
+                        ? Colors.transparent
+                        : isActive
+                            ? Colors.yellow[600]
+                            : Colors.grey[300],
+                  ),
+                ),
+                Container(
+                  width: 30,
+                  height: 30,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    color: isActive ? Colors.yellow[600] : Colors.grey[300],
+                  ),
+                  child: Center(
+                    child: Text(
+                      '${index + 1}',
+                      style: TextStyle(
+                        color: isActive ? Colors.black : Colors.white,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ),
+                ),
+                Expanded(
+                  child: Container(
+                    height: 4,
+                    color: index == 2
+                        ? Colors.transparent
+                        : isActive
+                            ? Colors.yellow[600]
+                            : Colors.grey[300],
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      }),
     );
   }
 }
