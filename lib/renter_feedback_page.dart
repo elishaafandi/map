@@ -1,6 +1,7 @@
+import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'write_feedback_formrentee.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 
 class RenterFeedbackPage extends StatelessWidget {
   final String currentUserId;
@@ -8,31 +9,42 @@ class RenterFeedbackPage extends StatelessWidget {
 
   RenterFeedbackPage({required this.currentUserId});
 
-  Stream<List<DocumentSnapshot>> getPendingFeedbackBookings() {
-    return _firestore
-        .collection('bookings')
-        .where('renterId', isEqualTo: currentUserId)
-        .where('booking_status', isEqualTo: 'approved')
-        .snapshots()
-        .map((snapshot) => snapshot.docs);
-  }
-
-  Stream<List<DocumentSnapshot>> getRenterFeedback() {
+  Stream<List<DocumentSnapshot>> getRenteeFeedback() {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) {
+      return Stream.value([]);
+    }
     return _firestore
         .collection('feedback')
-        .where('renterId', isEqualTo: currentUserId)
-        .where('feedbackType', isEqualTo: 'renter')
+        .where('renterId', isEqualTo: user.uid)
+        .where('feedbackType', isEqualTo: 'rentee')  // Changed to 'rentee' to match the feedback type
         .snapshots()
         .map((snapshot) => snapshot.docs);
   }
 
   Stream<List<DocumentSnapshot>> getYourFeedback() {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) {
+      return Stream.value([]);
+    }
     return _firestore
         .collection('feedback')
-        .where('renteeId', isEqualTo: currentUserId)
-        .where('feedbackType', isEqualTo: 'rentee')
+        .where('renteeId', isEqualTo: user.uid)
+        .where('feedbackType', isEqualTo: 'renter')  // Changed to 'renter' to match the feedback type
         .snapshots()
         .map((snapshot) => snapshot.docs);
+  }
+
+  ImageProvider? _getImageProvider(String? base64String) {
+    if (base64String == null || base64String.isEmpty) {
+      return null;
+    }
+    try {
+      return MemoryImage(base64Decode(base64String));
+    } catch (e) {
+      print('Error decoding base64 image: $e');
+      return null;
+    }
   }
 
   @override
@@ -51,42 +63,10 @@ class RenterFeedbackPage extends StatelessWidget {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               _buildSection(
-                icon: Icons.rate_review,
-                title: 'WRITE A FEEDBACK',
-                child: StreamBuilder<List<DocumentSnapshot>>(
-                  stream: getPendingFeedbackBookings(),
-                  builder: (context, snapshot) {
-                    if (snapshot.hasError) {
-                      return Text('Error: ${snapshot.error}',
-                          style: TextStyle(color: Colors.red));
-                    }
-
-                    if (snapshot.connectionState == ConnectionState.waiting) {
-                      return Center(
-                          child: CircularProgressIndicator(
-                              color: Colors.yellow[700]));
-                    }
-
-                    final bookings = snapshot.data ?? [];
-                    return ListView.builder(
-                      shrinkWrap: true,
-                      physics: NeverScrollableScrollPhysics(),
-                      itemCount: bookings.length,
-                      itemBuilder: (context, index) {
-                        final booking = bookings[index].data() as Map<String, dynamic>;
-                        return _writeFeedbackCard(booking, context);
-                      },
-                    );
-                  },
-                ),
-              ),
-              SizedBox(height: 24),
-
-              _buildSection(
                 icon: Icons.feedback,
                 title: 'FEEDBACK FROM RENTEE',
                 child: StreamBuilder<List<DocumentSnapshot>>(
-                  stream: getRenterFeedback(),
+                  stream: getRenteeFeedback(),
                   builder: (context, snapshot) {
                     if (snapshot.hasError) {
                       return Text('Error: ${snapshot.error}',
@@ -100,12 +80,18 @@ class RenterFeedbackPage extends StatelessWidget {
                     }
 
                     final feedbacks = snapshot.data ?? [];
+                    if (feedbacks.isEmpty) {
+                      return Text(
+                        "No feedback found",
+                        style: TextStyle(color: Colors.white),
+                      );
+                    }
+
                     return SingleChildScrollView(
                       scrollDirection: Axis.horizontal,
                       child: Row(
                         children: feedbacks.map((feedbackDoc) {
-                          final feedback =
-                              feedbackDoc.data() as Map<String, dynamic>;
+                          final feedback = feedbackDoc.data() as Map<String, dynamic>? ?? {};
                           return Padding(
                             padding: const EdgeInsets.only(right: 8.0),
                             child: _feedbackCard(feedback),
@@ -117,7 +103,6 @@ class RenterFeedbackPage extends StatelessWidget {
                 ),
               ),
               SizedBox(height: 24),
-
               _buildSection(
                 icon: Icons.comment,
                 title: 'YOUR FEEDBACK',
@@ -136,12 +121,18 @@ class RenterFeedbackPage extends StatelessWidget {
                     }
 
                     final feedbacks = snapshot.data ?? [];
+                    if (feedbacks.isEmpty) {
+                      return Text(
+                        "No feedback found",
+                        style: TextStyle(color: Colors.white),
+                      );
+                    }
+
                     return SingleChildScrollView(
                       scrollDirection: Axis.horizontal,
                       child: Row(
                         children: feedbacks.map((feedbackDoc) {
-                          final feedback =
-                              feedbackDoc.data() as Map<String, dynamic>;
+                          final feedback = feedbackDoc.data() as Map<String, dynamic>? ?? {};
                           return Padding(
                             padding: const EdgeInsets.only(right: 8.0),
                             child: _feedbackCard(feedback),
@@ -209,66 +200,6 @@ class RenterFeedbackPage extends StatelessWidget {
     );
   }
 
-  Widget _writeFeedbackCard(Map<String, dynamic> booking, BuildContext context) {
-    String formattedTime = '${booking['pickupTime']} - ${booking['returnTime']}';
-    String formattedDate = booking['pickupDate'];
-
-    return Container(
-      margin: EdgeInsets.only(bottom: 8),
-      decoration: BoxDecoration(
-        color: Color(0xFF2A2A2A),
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: Colors.yellow[700]!.withOpacity(0.3)),
-      ),
-      child: ListTile(
-        title: Text(
-          booking['location'] ?? 'Unknown Location',
-          style: TextStyle(
-            fontSize: 16,
-            fontWeight: FontWeight.bold,
-            color: Colors.white,
-          ),
-        ),
-        subtitle: Text(
-          '$formattedTime | $formattedDate',
-          style: TextStyle(color: Colors.grey[400]),
-        ),
-        trailing: ElevatedButton(
-          onPressed: () {
-            Navigator.push(
-              context,
-              MaterialPageRoute(
-                builder: (context) => WriteYourFeedback(
-                  bookingDetails: {
-                    'bookingId': booking['bookingId'],
-                    'vehicleModel': booking['vehicleModel'],
-                    'dates': '$formattedTime, $formattedDate',
-                    'location': booking['location'],
-                    'renterId': booking['renterId'],
-                    'renteeId': booking['renteeId'],
-                  },
-                ),
-              ),
-            );
-          },
-          style: ElevatedButton.styleFrom(
-            backgroundColor: Colors.yellow[700],
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(8),
-            ),
-          ),
-          child: Text(
-            'Rate',
-            style: TextStyle(
-              color: Colors.black,
-              fontWeight: FontWeight.bold,
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-
   Widget _feedbackCard(Map<String, dynamic> feedback) {
     return Container(
       width: 300,
@@ -281,38 +212,106 @@ class RenterFeedbackPage extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          if (feedback['selectedFeedback'] != null) ...[
-            ...List<String>.from(feedback['selectedFeedback']).map((text) => Padding(
-                  padding: const EdgeInsets.only(bottom: 8.0),
-                  child: Text(
-                    text,
-                    style: TextStyle(
-                      fontSize: 16,
-                      color: Colors.white,
-                    ),
-                  ),
-                )),
-            SizedBox(height: 8),
-          ],
           Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              Text(
-                feedback['vehicleName'] ?? 'Unknown Vehicle',
-                style: TextStyle(
-                  fontSize: 14,
-                  color: Colors.grey[400],
-                ),
+              StreamBuilder<DocumentSnapshot>(
+                stream: _firestore
+                    .collection('users')
+                    .doc(feedback['renteeId'] ?? feedback['renterId'])
+                    .snapshots(),
+                builder: (context, snapshot) {
+                  if (!snapshot.hasData) {
+                    return CircleAvatar(
+                      radius: 20,
+                      backgroundColor: Colors.grey[800],
+                      child: Icon(Icons.person, color: Colors.grey[600]),
+                    );
+                  }
+
+                  final userData = snapshot.data?.data() as Map<String, dynamic>? ?? {};
+                  final profilePhoto = userData['profilePhoto'];
+                  final imageProvider = _getImageProvider(profilePhoto);
+                  
+                  return Row(
+                    children: [
+                      CircleAvatar(
+                        radius: 20,
+                        backgroundColor: Colors.grey[800],
+                        backgroundImage: imageProvider,
+                        child: imageProvider == null
+                            ? Icon(Icons.person, color: Colors.grey[600])
+                            : null,
+                      ),
+                      SizedBox(width: 12),
+                      Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            userData['username'] ?? 'Anonymous User',
+                            style: TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.w600,
+                              color: Colors.white,
+                            ),
+                          ),
+                          Text(
+                            feedback['pickupDate'] ?? '',
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: Colors.grey[600],
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                  );
+                },
               ),
+              Spacer(),
               _ratingStars(feedback['rating'] ?? 0),
             ],
           ),
-          SizedBox(height: 8),
-          Text(
-            feedback['pickupDate'] ?? '',
-            style: TextStyle(
-              fontSize: 12,
-              color: Colors.grey[600],
+          SizedBox(height: 16),
+          Divider(color: Colors.grey[800]),
+          SizedBox(height: 16),
+          
+          if (feedback['selectedFeedback'] != null) ...[
+            ...List<String>.from(feedback['selectedFeedback']).map((text) => Padding(
+              padding: const EdgeInsets.only(bottom: 8.0),
+              child: Text(
+                text,
+                style: TextStyle(
+                  fontSize: 16,
+                  color: Colors.white,
+                ),
+              ),
+            )),
+            SizedBox(height: 8),
+          ],
+          
+          Container(
+            padding: EdgeInsets.all(8),
+            decoration: BoxDecoration(
+              color: Colors.yellow[700]!.withOpacity(0.1),
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(
+                  Icons.directions_car,
+                  size: 16,
+                  color: Colors.yellow[700],
+                ),
+                SizedBox(width: 8),
+                Text(
+                  feedback['vehicleName'] ?? 'Unknown Vehicle',
+                  style: TextStyle(
+                    fontSize: 14,
+                    color: Colors.yellow[700],
+                  ),
+                ),
+              ],
             ),
           ),
         ],
